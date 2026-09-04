@@ -2,7 +2,7 @@
 
 The overall cross-repo strategy (environments, the approach to reading Cognito's emails in tests,
 and how "vibe coding" shapes all of this) is recorded in
-[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md).
+[mootmaker/docs/reference/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md).
 This document covers what's specific to this repo.
 
 ## Purpose
@@ -35,13 +35,13 @@ repo is the email-pipeline half of that split; see [README.md's History](README.
 
 This repo owns the receipt rule, SNS topic, and SQS queue (the domain identity and MX record live
 in [mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain) instead — see
-[mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md#reading-cognitos-emails-in-tests)
+[mootmaker/docs/reference/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md#reading-cognitos-emails-in-tests)
 for the full design, including why this is **one persistent, shared pipeline** rather than
 something created per ephemeral environment or per frontend). Any frontend's test suite long-polls
 the queue and parses the verification code out of the real email body, filtering by a unique
 address tag per run. Used only for the small number of tests whose specific purpose is proving
 Cognito's email sending actually works — everywhere else, tests use the Cognito Admin-API bypass
-instead (`AdminConfirmSignUp` / `AdminSetUserPassword` — see mootmaker/testing-strategy.md's
+instead (`AdminConfirmSignUp` / `AdminSetUserPassword` — see mootmaker/docs/reference/testing-strategy.md's
 "Bypassing the code requirement entirely").
 
 **Deployed 2026-08-15, unchanged since**: `deploy/terraform/` here has the receipt rule set/rule,
