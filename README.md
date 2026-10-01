@@ -27,6 +27,12 @@ the detail specific to this repo.
 ./undeploy-email-infra.sh
 ```
 
+## Finding the queue
+
+The queue URL is published to SSM Parameter Store as `/mootmaker/email-testing/sqs-queue-url`.
+Test runners in other repositories read it from there, with `aws ssm get-parameter`, rather than
+running `terraform output` against this repository from a sibling checkout (mootmaker-api#94).
+
 ## History
 
 This repo is the email-pipeline half of a 2026-09-03 split of `mootmaker-test-infra`, which until
