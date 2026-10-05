@@ -20,6 +20,8 @@ split, not because they're related).
   changing the key re-points Terraform at empty state for already-live resources; changing resource
   names forces a destroy+recreate of a pipeline other tests actively depend on. Both moves this repo
   has already been through (2026-08-19, 2026-09-03) deliberately left these untouched.
+- **`client/` is consumed by tag from other repos.** A change to it is not live anywhere until it
+  is tagged and a consumer bumps its `#v...` — see README.md#using-it-from-tests.
 - **`undeploy-email-infra.sh` would break real-email testing for every frontend at once.** There's
   no ephemeral copy to try things on first.
 

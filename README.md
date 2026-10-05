@@ -10,7 +10,8 @@ One persistent, shared piece of testing infrastructure used by more than one fro
 [mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) expected to depend on it
 later: the real-email SES→SNS→SQS pipeline (`deploy/terraform/`, `deploy-email-infra.sh`,
 `undeploy-email-infra.sh`) — one queue any frontend's tests can long-poll for a real Cognito
-verification-code email. Deployed once, not per environment, not per frontend.
+verification-code email. Deployed once, not per environment, not per frontend. Also the small
+JavaScript client that reads that queue — see [Using it from tests](#using-it-from-tests).
 
 Nothing here is a test suite itself; each frontend owns its own `e2e/` and `acceptance/` tests (see
 [mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)),
@@ -32,6 +33,39 @@ the detail specific to this repo.
 The queue URL is published to SSM Parameter Store as `/mootmaker/email-testing/sqs-queue-url`.
 Test runners in other repositories read it from there, with `aws ssm get-parameter`, rather than
 running `terraform output` against this repository from a sibling checkout (mootmaker-api#94).
+
+## Using it from tests
+
+The repo also ships the **client** for that queue — `client/index.js`, an npm package with three
+functions: `uniqueTestEmail()`, `freshTestAccount()` and `waitForVerificationCode(email)`. It
+lives here, beside the pipeline it reads, so every consumer shares one copy (mootmaker-release#5).
+A divergent copy would not fail loudly: it would show up as test runs intermittently consuming each
+other's verification codes.
+
+Consumers depend on it from GitHub, pinned to a tag:
+
+```json
+"dependencies": {
+  "mootmaker-email-testing": "github:geoffweatherall/mootmaker-email-testing#v1.0.0"
+}
+```
+
+```ts
+import { freshTestAccount, waitForVerificationCode } from 'mootmaker-email-testing'
+```
+
+`waitForVerificationCode` reads the queue URL from `SQS_QUEUE_URL`, which each consumer's `run.sh`
+sets from the SSM parameter above. Current consumers: mootmaker-webapp's `e2e/` and `acceptance/`
+suites, and mootmaker-release's smoke suites.
+
+**Changing the client:** edit `client/index.js` and keep `client/index.d.ts` in step, run
+`npm install && npm run typecheck`, bump `version` in `package.json`, merge, then tag `main` as
+`v<version>` and push the tag. Consumers pick it up by changing the `#v...` in their own
+`package.json`. A tag rather than a branch, so a consumer's lockfile and its CI agree on exactly
+which code they run.
+
+It is plain JavaScript with JSDoc types and a hand-written `.d.ts`, not TypeScript, because it is
+installed into `node_modules`, where neither Playwright nor Node will compile TypeScript.
 
 ## History
 
