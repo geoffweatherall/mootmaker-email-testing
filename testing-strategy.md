@@ -53,6 +53,10 @@ remote-state read, mirroring how mootmaker-api/mootmaker-webapp already find moo
 hosted zone. `mail.mootmaker.com` genuinely receives mail into `sqs_queue_url`, and this pipeline
 is exercised end-to-end by mootmaker-webapp's `e2e/sign-up.spec.ts` and `e2e/forgot-password.spec.ts`.
 
+The code that reads the queue lives here too, as the `client/` package (moved from
+mootmaker-webapp's `support/` 2026-10-05, mootmaker-release#5) — see
+[README.md#using-it-from-tests](README.md#using-it-from-tests).
+
 **Two repo moves since, resources untouched both times**: first `mootmaker-e2e` →
 `mootmaker-test-infra` (2026-08-19), then `mootmaker-test-infra` → this repo,
 `mootmaker-email-testing` (2026-09-03, split out from the ephemeral-environment scripts, which
