@@ -1,9 +1,6 @@
-# Deployed 2026-08-15, once the account's SCP allow-list was updated to
-# include ses/sns/sqs.
-#
-# The receipt rule set/rule, SNS topic, and SQS queue that implement Option
-# 2 (real email reading) from mootmaker/docs/reference/testing-strategy.md
-# #reading-cognitos-emails-in-tests. The domain identity and MX record this
+# The receipt rule set and rule that deliver test mail to the SNS topic and
+# SQS queue (sns.tf, sqs.tf). The account's SCP allow-list must include
+# ses, sns and sqs. The domain identity and MX record this
 # depends on live in mootmaker-domain instead, deployed and verified
 # separately - referenced here via a `data` source rather than a hard
 # remote-state dependency, mirroring how mootmaker-api/mootmaker-webapp find
@@ -12,27 +9,25 @@
 # ses.tf has been applied and the identity verified would fail at plan time
 # (the data source wouldn't resolve).
 #
-# No environment-name concept here (see also backend.hcl and
-# testing-strategy.md): this is one persistent, shared pipeline, deployed
+# No environment-name concept here (see also backend.hcl and README.md):
+# this is one persistent, shared pipeline, deployed
 # once and left running like mootmaker-domain's hosted zone - not
 # created/destroyed per ephemeral environment. Two reasons:
 #   1. AWS SES only allows one *active* receipt rule set per region per
-#      account, so a fresh rule set per ephemeral e2e run would mean
-#      concurrent runs fighting over which one is active.
-#   2. Each e2e run instead sends to a uniquely-tagged address under the
-#      shared subdomain and filters the SQS queue for its own tag - so
-#      concurrent runs don't see each other's mail even though the pipeline
-#      itself is shared. See testing-strategy.md for the full reasoning.
+#      account, so a fresh rule set per test run would mean concurrent runs
+#      fighting over which one is active.
+#   2. Each test instead signs up with a unique address under the shared
+#      subdomain and takes only the messages addressed to it - so concurrent
+#      runs don't see each other's mail even though the pipeline itself is
+#      shared.
 data "aws_ses_domain_identity" "mail" {
   domain = "mail.mootmaker.com"
 }
 
-# NOTE: still named "mootmaker-e2e-inbound" (not "mootmaker-email-testing-...")
-# even after this repo has moved twice (mootmaker-e2e -> mootmaker-test-infra
-# -> mootmaker-email-testing, 2026-09-03) - changing a rule set's name here
-# would force Terraform to destroy and recreate it, and SES only allows one
-# *active* receipt rule set per region/account, so that's a deliberate,
-# separately approved step, not something to fold into a repo move.
+# Named "mootmaker-e2e-inbound" after an older name of this repository.
+# Renaming it would force Terraform to destroy and recreate it, and SES only
+# allows one *active* receipt rule set per region/account, so that would be
+# a deliberate, separately approved step.
 resource "aws_ses_receipt_rule_set" "e2e" {
   rule_set_name = "mootmaker-e2e-inbound"
 }

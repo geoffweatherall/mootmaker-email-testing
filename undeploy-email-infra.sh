@@ -2,8 +2,8 @@
 # Destroys the SES receipt rule set, SNS topic, and SQS queue created by
 # deploy-email-infra.sh.
 #
-# NOTE: this is DESTRUCTIVE and IRREVERSIBLE - every e2e run relying on
-# real-email verification-code tests would break until this is redeployed.
+# NOTE: this is DESTRUCTIVE - every test that reads a real emailed code, in
+# every environment and frontend, breaks until this is redeployed.
 # Terraform will prompt for interactive confirmation before deleting
 # anything; this script intentionally does not pass -auto-approve.
 set -euo pipefail
