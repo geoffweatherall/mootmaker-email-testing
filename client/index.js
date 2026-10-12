@@ -13,7 +13,7 @@ import { simpleParser } from 'mailparser'
 const MAIL_DOMAIN = 'mail.mootmaker.com'
 
 // One shared, persistent queue, not one per environment, per test, or per frontend (see
-// mootmaker/docs/reference/testing-strategy.md#reading-cognitos-emails-in-tests), so concurrent
+// README.md), so concurrent
 // runs/tests distinguish their own mail purely by address, not by infrastructure. Every test that
 // needs a real emailed code should call this once and use the result as the account's email - never
 // reuse an address across tests, or a slow/retried long-poll could pick up another test's message.
@@ -26,12 +26,10 @@ export function uniqueTestEmail() {
  * A fresh, never-used identity for a real sign-up - see uniqueTestEmail for why every test needs
  * its own.
  *
- * The name carries the same uniqueness requirement as the email: mootmaker-api#70 made a name
- * collision (case/whitespace-insensitive) an outright sign-up rejection rather than something
- * silently allowed, so a fixed literal name here would only ever succeed once per environment - the
- * first caller creates the Person, and PreSignUpNameCollisionHandler rejects every one after it.
- * Seen for real: every test after the first to call this in a given run failed at "Verification
- * code never appears" or with a UserLambdaValidationException.
+ * The name carries the same uniqueness requirement as the email: a sign-up whose name matches an
+ * existing person (case- and whitespace-insensitive) is rejected outright (mootmaker-api#70), so a
+ * fixed literal name here would succeed only once per environment. Every later caller would fail at
+ * "Verification code never appears" or with a UserLambdaValidationException.
  *
  * @returns {{ name: string, email: string, password: string }}
  */
@@ -154,10 +152,10 @@ const ABANDONED_AFTER_MS = 60 * 60 * 1000
 /**
  * Deletes a message nobody can still be waiting for, and says whether it did.
  *
- * Mail no test ever consumed - a sign-up confirmation nobody read, a bounce - used to stay on the
- * shared queue for its full 14-day retention. Hundreds built up, and every poll had to wade through
- * them ten at a time, hiding each batch from concurrent runs for the visibility timeout while it
- * did. Clearing them as they are met keeps the queue near-empty without a separate job.
+ * Mail no test ever consumes - a sign-up confirmation nobody read, a bounce - would otherwise stay
+ * on the shared queue for its full 14-day retention, and every poll would wade through it ten at a
+ * time, hiding each batch from concurrent runs for the visibility timeout. Clearing it as it is met
+ * keeps the queue near-empty without a separate job.
  *
  * @param {{ Body?: string, ReceiptHandle?: string }} message
  * @returns {Promise<boolean>}
