@@ -1,46 +1,64 @@
 # mootmaker-email-testing
 
-A project that is part of my [Claude Code exploration](https://github.com/geoffweatherall/mootmaker).
+The shared pipeline that lets tests read a **real** Cognito verification email, and the small JavaScript
+client tests use to do it. It is deployed once, not per environment, and serves every environment and
+every frontend's tests.
 
-## Purpose
-
-One persistent, shared piece of testing infrastructure used by more than one frontend of the
-[mootmaker](https://github.com/geoffweatherall/mootmaker) project — currently
-[mootmaker-webapp](https://github.com/geoffweatherall/mootmaker-webapp), with
-[mootmaker-android](https://github.com/geoffweatherall/mootmaker-android) expected to depend on it
-later: the real-email SES→SNS→SQS pipeline (`deploy/terraform/`, `deploy-email-infra.sh`,
-`undeploy-email-infra.sh`) — one queue any frontend's tests can long-poll for a real Cognito
-verification-code email. Deployed once, not per environment, not per frontend. Also the small
-JavaScript client that reads that queue — see [Using it from tests](#using-it-from-tests).
-
-Nothing here is a test suite itself; each frontend owns its own `e2e/` and `acceptance/` tests (see
-[mootmaker-webapp/testing-strategy.md](https://github.com/geoffweatherall/mootmaker-webapp/blob/main/testing-strategy.md)),
-against its own real deployed environment, using whatever's idiomatic for that platform.
-
-See [mootmaker/testing-strategy.md](https://github.com/geoffweatherall/mootmaker/blob/main/docs/reference/testing-strategy.md)
-for how this fits the wider cross-repo strategy, and [testing-strategy.md](testing-strategy.md) for
-the detail specific to this repo.
-
-## Deploying / undeploying
-
-```bash
-./deploy-email-infra.sh      # no environment argument - see testing-strategy.md
-./undeploy-email-infra.sh
+```mermaid
+flowchart LR
+  cognito["Cognito, any environment<br/>sends a code to<br/>e2e-…@mail.mootmaker.com"]
+  ses["SES receipt rule<br/>catch-all for mail.mootmaker.com<br/>(MX in mootmaker-domain)"]
+  sns["SNS topic"]
+  sqs[("SQS queue<br/>14-day retention")]
+  client["client/index.js<br/>waitForVerificationCode(email)"]
+  cognito --> ses --> sns --> sqs
+  client -- "long-poll, match recipient,<br/>delete only its own" --> sqs
 ```
 
-## Finding the queue
+Most tests never need this: they create accounts through the API or Cognito's admin calls. It is for
+the tests whose subject *is* the email: sign-up with a real code, password reset, and the release smoke
+test on `test`. How that fits the test layers is in the hub's
+[testing overview](https://github.com/geoffweatherall/mootmaker/blob/main/docs/overview/testing.md).
 
-The queue URL is published to SSM Parameter Store as `/mootmaker/email-testing/sqs-queue-url`.
-Test runners in other repositories read it from there, with `aws ssm get-parameter`, rather than
-running `terraform output` against this repository from a sibling checkout (mootmaker-api#94).
+## Why one shared pipeline
+
+- **SES allows one active receipt rule set per account and region**, so a rule set per environment or per
+  run would fight over which is active.
+- **Tests separate their mail by address instead.** Each test signs up with a fresh
+  `e2e-<uuid>@mail.mootmaker.com` address, and the client only ever takes, and deletes, messages
+  addressed to it. Everything else is left for whoever is waiting on it, because a standard SQS queue has
+  no ordering to rely on.
+- **Messages more than an hour old are deleted as they are met**, since every wait gives up within a
+  minute. That keeps the queue near-empty without a separate job.
+
+The domain identity and the `mail.mootmaker.com` MX record belong to
+[mootmaker-domain](https://github.com/geoffweatherall/mootmaker-domain). This repository owns the receipt
+rule set, the SNS topic and the SQS queue (`deploy/terraform/`).
+
+## Deploying
+
+```bash
+./deploy-email-infra.sh      # no environment argument: there is one deployment
+./undeploy-email-infra.sh    # breaks real-email tests everywhere at once
+```
+
+The queue URL is published to SSM Parameter Store as `/mootmaker/email-testing/sqs-queue-url`. Test
+runners read it from there and pass it to the client as `SQS_QUEUE_URL`.
+
+**The Terraform state key (`mootmaker-e2e-email/terraform.tfstate`) and the resource names predate this
+repository's name. Never change them as a side effect of anything else.** A new key would point Terraform
+at empty state for live resources, and new names would destroy and recreate a pipeline other tests
+depend on.
 
 ## Using it from tests
 
-The repo also ships the **client** for that queue — `client/index.js`, an npm package with three
-functions: `uniqueTestEmail()`, `freshTestAccount()` and `waitForVerificationCode(email)`. It
-lives here, beside the pipeline it reads, so every consumer shares one copy (mootmaker-release#5).
-A divergent copy would not fail loudly: it would show up as test runs intermittently consuming each
-other's verification codes.
+`client/index.js` exports three functions:
+
+| Function | Returns |
+|---|---|
+| `uniqueTestEmail()` | A never-used address under `mail.mootmaker.com` |
+| `freshTestAccount()` | `{ name, email, password }`, all unique. The name must be unique too: the API refuses a sign-up whose name matches an existing person |
+| `waitForVerificationCode(email, timeoutMs = 60000)` | The six-digit code from the first message addressed to `email`, which it then deletes |
 
 Consumers depend on it from GitHub, pinned to a tag:
 
@@ -54,39 +72,22 @@ Consumers depend on it from GitHub, pinned to a tag:
 import { freshTestAccount, waitForVerificationCode } from 'mootmaker-email-testing'
 ```
 
-`waitForVerificationCode` reads the queue URL from `SQS_QUEUE_URL`, which each consumer's `run.sh`
-sets from the SSM parameter above. Current consumers: mootmaker-webapp's `e2e/` and `acceptance/`
-suites, and mootmaker-release's smoke suites.
+Consumers today: mootmaker-webapp's acceptance suite, mootmaker-release's smoke suites, and
+mootmaker-android's `email-helper/`, which serves codes to the emulator and to Maestro. Callers need AWS
+credentials that can read and delete messages on the queue.
 
-**Changing the client:** edit `client/index.js` and keep `client/index.d.ts` in step, run
-`npm install && npm run typecheck`, bump `version` in `package.json`, merge, then tag `main` as
-`v<version>` and push the tag. Consumers pick it up by changing the `#v...` in their own
-`package.json`. A tag rather than a branch, so a consumer's lockfile and its CI agree on exactly
-which code they run.
+**Changing the client:**
+1. Edit `client/index.js` and keep `client/index.d.ts` in step.
+2. Run `npm install && npm run typecheck`.
+3. Bump `version` in `package.json` and merge.
+4. Tag `main` as `v<version>` and push the tag.
+5. Raise the `#v…` pin in each consumer.
 
-It is plain JavaScript with JSDoc types and a hand-written `.d.ts`, not TypeScript, because it is
-installed into `node_modules`, where neither Playwright nor Node will compile TypeScript.
+A tag, not a branch, so a consumer's lockfile and its CI agree on exactly which code runs.
 
-## History
+It is plain JavaScript with JSDoc types and a hand-written `.d.ts`, because it is installed into
+`node_modules`, where neither Playwright nor Node compiles TypeScript.
 
-This repo is the email-pipeline half of a 2026-09-03 split of `mootmaker-test-infra`, which until
-then also owned the ephemeral-environment lifecycle scripts (`create-ephemeral-env.sh` and
-friends). That half moved to its own single-purpose repo,
-[mootmaker-ephemeral-envs](https://github.com/geoffweatherall/mootmaker-ephemeral-envs), rather
-than following this rename — the two were only ever combined by circumstance (both were the
-"genuinely cross-repo" leftovers of the original `mootmaker-e2e` split, 2026-08-19), not because
-they're actually related. Deployed AWS resources, their Terraform-managed names, and the state key
-they're stored under were left exactly as they were through **both** moves — see
-[testing-strategy.md](testing-strategy.md) and `deploy/terraform/backend.hcl`'s comment for why.
-
-`mootmaker-test-infra` was itself formerly `mootmaker-e2e`, before each frontend gained its own
-`e2e/`/`acceptance/` suites — see
-[mootmaker-ephemeral-envs' own History](https://github.com/geoffweatherall/mootmaker-ephemeral-envs#history)
-for that earlier split's detail, most of which concerned the ephemeral-environment scripts rather
-than this pipeline.
-
-## Status
-
-Built and verified working against real AWS 2026-08-15 (back when this repo was still
-`mootmaker-e2e`) — see [testing-strategy.md](testing-strategy.md) for detail. Unchanged, and
-untouched by either subsequent repo move.
+How changes here are tested: [testing-strategy.md](testing-strategy.md). If verification emails stop
+arriving, see the hub's
+[verification email runbook](https://github.com/geoffweatherall/mootmaker/blob/main/docs/runbooks/verification-email-not-arriving.md).
